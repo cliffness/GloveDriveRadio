@@ -5,7 +5,6 @@ const nowEl = $("nowPlaying");
 const favEl = $("favorites");
 const recEl = $("recents");
 const audio = $("player");
-audio.crossOrigin = "anonymous";
 
 let scene, camera, renderer, controls;
 let globe, clouds, atmosphere;
@@ -14,8 +13,9 @@ let currentMarker = null;
 
 let nightMode = false;
 let textures = {};
-
 const RADIUS = 5.0;
+
+/* ---------------- STORAGE ---------------- */
 
 function readLS(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
@@ -27,7 +27,9 @@ function getFavorites() { return readLS("favorites", []); }
 function getRecents() { return readLS("recents", []); }
 function getAllStations() { return readLS("cachedStations", []); }
 
-function stationKey(st) { return (st.stationuuid || "") + "|" + (st.stream || ""); }
+function stationKey(st) {
+  return (st.stationuuid || "") + "|" + (st.stream || "");
+}
 
 function minifyStation(st) {
   return {
@@ -47,6 +49,8 @@ function pushToNative() {
     }
   } catch (e) {}
 }
+
+/* ---------------- THREE SETUP ---------------- */
 
 function latLngToVector3(lat, lng, radius) {
   const phi = (90 - lat) * (Math.PI / 180);
@@ -76,8 +80,7 @@ function initThree() {
   light.position.set(12, 8, 10);
   scene.add(light);
 
-  const ambient = new THREE.AmbientLight(0x2a2a2a);
-  scene.add(ambient);
+  scene.add(new THREE.AmbientLight(0x2a2a2a));
 
   const loader = new THREE.TextureLoader();
   textures.day = loader.load("https://threejs.org/examples/textures/land_ocean_ice_cloud_2048.jpg");
@@ -98,84 +101,19 @@ function initThree() {
 
   atmosphere = new THREE.Mesh(
     new THREE.SphereGeometry(RADIUS + 0.35, 64, 64),
-    new THREE.MeshBasicMaterial({ color: 0x3399ff, transparent: true, opacity: 0.14, side: THREE.BackSide })
+    new THREE.MeshBasicMaterial({
+      color: 0x3399ff,
+      transparent: true,
+      opacity: 0.14,
+      side: THREE.BackSide
+    })
   );
   scene.add(atmosphere);
 
   window.addEventListener("resize", onResize);
   onResize();
 
-let downX = 0, downY = 0, moved = false;
-let pressTimer = null;
-
-renderer.domElement.addEventListener("pointerdown", (ev) => {
-  downX = ev.clientX; downY = ev.clientY;
-  moved = false;
-
-  // long-press = favorite (works everywhere)
-  pressTimer = setTimeout(() => {
-    const m = pickMarker(ev);
-    if (m) toggleFavorite(m.userData);
-  }, 450);
-});
-
-renderer.domElement.addEventListener("pointermove", (ev) => {
-  const dx = Math.abs(ev.clientX - downX);
-  const dy = Math.abs(ev.clientY - downY);
-  if (dx + dy > 10) { // user is dragging
-    moved = true;
-    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-  }
-});
-
-renderer.domElement.addEventListener("pointerup", (ev) => {
-  if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-
-  // If it was a drag, let OrbitControls handle it
-  if (moved) return;
-
-  // If it was a tap, try to select a marker
-  const m = pickMarker(ev);
-  if (!m) return;
-
-  const st = m.userData;
-  highlightMarker(m);
-  focusOn(m);
-
-  // IMPORTANT: play via native service (added below)
-  function playStation(st) {
-  if (!st?.stream) return;
-
-  const title = `${st.name || "Station"}${st.country ? " · " + st.country : ""}`;
-  nowEl.textContent = title;
-
-  // Prefer native playback (won’t get killed easily)
-  if (window.AndroidBridge && window.AndroidBridge.playStream) {
-    try { window.AndroidBridge.playStream(st.stream, title); } catch (e) {}
-    return;
-  }
-
-  // Fallback if running in a browser
-  audio.src = st.stream;
-  audio.play().catch(()=>{});
-}
-  saveRecent(st);
-});
-let pressTimer = null;
-renderer.domElement.addEventListener("pointerdown", (ev) => {
-  pressTimer = setTimeout(() => {
-    const m = pickMarker(ev);
-    if (m) toggleFavorite(m.userData);
-  }, 450); // long press = favorite
-});
-renderer.domElement.addEventListener("pointerup", () => {
-  if (pressTimer) clearTimeout(pressTimer);
-  pressTimer = null;
-});
-renderer.domElement.addEventListener("pointermove", () => {
-  if (pressTimer) clearTimeout(pressTimer);
-  pressTimer = null;
-});
+  setupPointerControls();
   animate();
 }
 
@@ -187,6 +125,8 @@ function onResize() {
   camera.updateProjectionMatrix();
 }
 
+/* ---------------- MARKERS ---------------- */
+
 function clearMarkers() {
   markers.forEach(m => scene.remove(m));
   markers = [];
@@ -195,21 +135,26 @@ function clearMarkers() {
 
 function buildMarkers(stations) {
   clearMarkers();
-  const MAX = 1200;
-  const subset = stations.slice(0, Math.min(MAX, stations.length));
+  const subset = stations.slice(0, 1200);
 
   subset.forEach((st, i) => {
     const pos = latLngToVector3(st.lat, st.lng, RADIUS + 0.12);
-    const mat = new THREE.SpriteMaterial({ color: 0xff00aa, blending: THREE.AdditiveBlending });
+
+    const mat = new THREE.SpriteMaterial({
+      color: 0xff00aa,
+      blending: THREE.AdditiveBlending
+    });
+
     const s = new THREE.Sprite(mat);
     s.position.copy(pos);
     s.scale.set(0.32, 0.32, 0.32);
     s.userData = st;
+
     scene.add(s);
     markers.push(s);
   });
 
-  statusEl.textContent = `Markers: ${markers.length} (from ${stations.length} stations)`;
+  statusEl.textContent = `Markers: ${markers.length}`;
 }
 
 function highlightMarker(marker) {
@@ -218,24 +163,102 @@ function highlightMarker(marker) {
   currentMarker = marker;
 }
 
+/* ---------------- INTERACTION ---------------- */
+
 const raycaster = new THREE.Raycaster();
-raycaster.params.Sprite.threshold = 0.6; // bigger tap target
-// Make Sprite markers easier to tap (especially on mobile)
-raycaster.params.Sprite.threshold = 0.35;
+raycaster.params.Sprite.threshold = 0.6;
+
 const mouse = new THREE.Vector2();
 
-function setMouseFromEvent(ev) {
+function setMouse(ev) {
   const rect = renderer.domElement.getBoundingClientRect();
   mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-  mouse.y = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
+  mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
 }
 
 function pickMarker(ev) {
-  setMouseFromEvent(ev);
+  setMouse(ev);
   raycaster.setFromCamera(mouse, camera);
   const hits = raycaster.intersectObjects(markers);
   return hits.length ? hits[0].object : null;
 }
+
+function setupPointerControls() {
+  let downX = 0, downY = 0, moved = false;
+  let pressTimer = null;
+
+  renderer.domElement.addEventListener("pointerdown", (ev) => {
+    downX = ev.clientX;
+    downY = ev.clientY;
+    moved = false;
+
+    pressTimer = setTimeout(() => {
+      const m = pickMarker(ev);
+      if (m) toggleFavorite(m.userData);
+    }, 450);
+  });
+
+  renderer.domElement.addEventListener("pointermove", (ev) => {
+    const dx = Math.abs(ev.clientX - downX);
+    const dy = Math.abs(ev.clientY - downY);
+    if (dx + dy > 10) {
+      moved = true;
+      if (pressTimer) clearTimeout(pressTimer);
+    }
+  });
+
+  renderer.domElement.addEventListener("pointerup", (ev) => {
+    if (pressTimer) clearTimeout(pressTimer);
+
+    if (moved) return;
+
+    const m = pickMarker(ev);
+    if (!m) return;
+
+    const st = m.userData;
+    highlightMarker(m);
+    focusOn(m);
+    playStation(st);
+    saveRecent(st);
+  });
+}
+
+/* ---------------- PLAYBACK ---------------- */
+
+function playStation(st) {
+  if (!st?.stream) return;
+
+  const title = `${st.name || "Station"}${st.country ? " · " + st.country : ""}`;
+  nowEl.textContent = title;
+
+  if (window.AndroidBridge?.playStream) {
+    try { window.AndroidBridge.playStream(st.stream, title); }
+    catch {}
+    return;
+  }
+
+  audio.src = st.stream;
+  audio.play().catch(()=>{});
+}
+
+function saveRecent(st) {
+  const rec = getRecents();
+  const k = stationKey(st);
+  writeLS("recents", [st, ...rec.filter(x => stationKey(x) !== k)].slice(0, 15));
+  pushToNative();
+  renderPanels();
+}
+
+function toggleFavorite(st) {
+  const fav = getFavorites();
+  const k = stationKey(st);
+  const exists = fav.some(x => stationKey(x) === k);
+  writeLS("favorites", exists ? fav.filter(x => stationKey(x) !== k) : [st, ...fav]);
+  pushToNative();
+  renderPanels();
+}
+
+/* ---------------- CAMERA FOCUS ---------------- */
 
 function focusOn(marker) {
   const target = marker.position.clone().normalize().multiplyScalar(10);
@@ -245,53 +268,13 @@ function focusOn(marker) {
     .start();
 }
 
-function playStation(st) {
-  if (!st?.stream) return;
-  audio.src = st.stream;
-  audio.play().catch(()=>{});
-  nowEl.textContent = `${st.name || "Station"}${st.country ? " · " + st.country : ""}`;
-}
+/* ---------------- PANELS ---------------- */
 
-function saveRecent(st) {
-  const rec = getRecents();
-  const k = stationKey(st);
-  const next = [st, ...rec.filter(x => stationKey(x) !== k)].slice(0, 15);
-  writeLS("recents", next);
-  pushToNative();
-  renderPanels();
-}
-
-function toggleFavorite(st) {
-  const fav = getFavorites();
-  const k = stationKey(st);
-  const exists = fav.some(x => stationKey(x) === k);
-  const next = exists ? fav.filter(x => stationKey(x) !== k) : [st, ...fav];
-  writeLS("favorites", next);
-  pushToNative();
-  renderPanels();
-}
-
-function onClick(ev) {
-  const m = pickMarker(ev);
-  if (!m) return;
-  const st = m.userData;
-  highlightMarker(m);
-  focusOn(m);
-  playStation(st);
-  saveRecent(st);
-}
-
-function onDoubleClick(ev) {
-  const m = pickMarker(ev);
-  if (!m) return;
-  toggleFavorite(m.userData);
-}
-
-function makeStationButton(st, prefix = "") {
+function makeStationButton(st, prefix="") {
   const btn = document.createElement("button");
   btn.className = "cardbtn";
-  btn.innerHTML = `<div class="t">${escapeHtml(prefix + (st.name || "Station"))}</div>
-                   <div class="s">${escapeHtml(st.country || "")}</div>`;
+  btn.innerHTML = `<div class="t">${prefix}${st.name}</div>
+                   <div class="s">${st.country || ""}</div>`;
   btn.onclick = () => { playStation(st); saveRecent(st); };
   return btn;
 }
@@ -299,33 +282,14 @@ function makeStationButton(st, prefix = "") {
 function renderPanels() {
   favEl.innerHTML = "";
   recEl.innerHTML = "";
-
-  const fav = getFavorites();
-  const rec = getRecents();
-
-  if (!fav.length) {
-    const d = document.createElement("div");
-    d.style.color = "#9fb0d0";
-    d.textContent = "Double-tap a marker to add favorites.";
-    favEl.appendChild(d);
-  } else {
-    fav.forEach(st => favEl.appendChild(makeStationButton(st, "★ ")));
-  }
-
-  if (!rec.length) {
-    const d = document.createElement("div");
-    d.style.color = "#9fb0d0";
-    d.textContent = "Tap a marker to start your history.";
-    recEl.appendChild(d);
-  } else {
-    rec.forEach(st => recEl.appendChild(makeStationButton(st, "⟲ ")));
-  }
+  getFavorites().forEach(st => favEl.appendChild(makeStationButton(st,"★ ")));
+  getRecents().forEach(st => recEl.appendChild(makeStationButton(st,"⟲ ")));
 }
 
-async function fetchStationsFromAPI() {
-  const url = "https://de1.api.radio-browser.info/json/stations/topclick/800";
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("API fetch failed");
+/* ---------------- API ---------------- */
+
+async function fetchStations() {
+  const res = await fetch("https://de1.api.radio-browser.info/json/stations/topclick/800");
   const raw = await res.json();
 
   return raw.map(s => ({
@@ -333,55 +297,30 @@ async function fetchStationsFromAPI() {
     name: s.name,
     country: s.country,
     favicon: s.favicon,
-    tags: s.tags,
     stream: s.url_resolved || s.url,
     lat: parseFloat(s.geo_lat),
     lng: parseFloat(s.geo_long)
   })).filter(s =>
-    Number.isFinite(s.lat) && Number.isFinite(s.lng) &&
-    s.stream && typeof s.stream === "string" && s.stream.startsWith("http")
+    Number.isFinite(s.lat) &&
+    Number.isFinite(s.lng) &&
+    s.stream?.startsWith("http")
   );
 }
 
-function applyFilters() {
-  const q = ($("search").value || "").trim().toLowerCase();
-  const g = ($("genre").value || "").trim().toLowerCase();
-
-  const all = getAllStations();
-  const filtered = all.filter(s => {
-    const hitQ = !q || (s.name || "").toLowerCase().includes(q) || (s.country || "").toLowerCase().includes(q);
-    const hitG = !g || ((s.tags || "").toLowerCase().includes(g));
-    return hitQ && hitG;
-  });
-
-  buildMarkers(filtered);
-}
-
-async function loadStations({ force = false } = {}) {
+async function loadStations() {
   statusEl.textContent = "Loading stations…";
-  const cached = getAllStations();
-
-  if (cached.length && !force) {
-    buildMarkers(cached);
-    statusEl.textContent = `Loaded cached stations: ${cached.length}`;
-  }
-
   try {
-    const fresh = await fetchStationsFromAPI();
+    const fresh = await fetchStations();
     writeLS("cachedStations", fresh);
     pushToNative();
     buildMarkers(fresh);
-    statusEl.textContent = `Loaded from API: ${fresh.length}`;
-  } catch (e) {
-    statusEl.textContent = cached.length ? "Using cached stations (offline?)" : "Could not load stations (offline?)";
+    statusEl.textContent = `Loaded ${fresh.length} stations`;
+  } catch {
+    statusEl.textContent = "Offline or API error";
   }
 }
 
-function toggleNight() {
-  nightMode = !nightMode;
-  globe.material.map = nightMode ? textures.night : textures.day;
-  globe.material.needsUpdate = true;
-}
+/* ---------------- ANIMATION ---------------- */
 
 function animate() {
   requestAnimationFrame(animate);
@@ -389,25 +328,18 @@ function animate() {
   clouds.rotation.y += 0.0005;
 
   const t = Date.now() * 0.005;
-  for (let i = 0; i < markers.length; i++) {
-    const m = markers[i];
-    const pulse = 0.32 + Math.sin(t + i) * 0.07;
-    m.scale.set(pulse, pulse, pulse);
-  }
+  markers.forEach((m,i)=>{
+    const pulse = 0.32 + Math.sin(t+i)*0.07;
+    m.scale.set(pulse,pulse,pulse);
+  });
 
   TWEEN.update();
   renderer.render(scene, camera);
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
-}
+/* ---------------- INIT ---------------- */
 
-$("btnNight").addEventListener("click", toggleNight);
-$("btnReload").addEventListener("click", () => loadStations({ force: true }));
-$("btnApply").addEventListener("click", applyFilters);
-
-renderPanels();
 initThree();
+renderPanels();
 loadStations();
 pushToNative();
