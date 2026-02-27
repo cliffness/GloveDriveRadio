@@ -143,7 +143,22 @@ renderer.domElement.addEventListener("pointerup", (ev) => {
   focusOn(m);
 
   // IMPORTANT: play via native service (added below)
-  playStation(st);
+  function playStation(st) {
+  if (!st?.stream) return;
+
+  const title = `${st.name || "Station"}${st.country ? " · " + st.country : ""}`;
+  nowEl.textContent = title;
+
+  // Prefer native playback (won’t get killed easily)
+  if (window.AndroidBridge && window.AndroidBridge.playStream) {
+    try { window.AndroidBridge.playStream(st.stream, title); } catch (e) {}
+    return;
+  }
+
+  // Fallback if running in a browser
+  audio.src = st.stream;
+  audio.play().catch(()=>{});
+}
   saveRecent(st);
 });
 let pressTimer = null;
