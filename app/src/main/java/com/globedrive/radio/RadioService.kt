@@ -21,16 +21,6 @@ class RadioService : MediaBrowserServiceCompat() {
 
   override fun onCreate() {
     super.onCreate()
-  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-  if (intent?.action == "PLAY_STREAM") {
-    val url = intent.getStringExtra("url")
-    val title = intent.getStringExtra("title")
-    if (!url.isNullOrBlank()) {
-      playStream(url, title)
-    }
-  }
-  return START_STICKY
-}
 
     createNotificationChannel()
 
@@ -40,7 +30,6 @@ class RadioService : MediaBrowserServiceCompat() {
       setCallback(object : MediaSessionCompat.Callback() {
 
         override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
-          // mediaId is the stream URL
           mediaId?.let { playStream(it, extras?.getString("title")) }
         }
 
@@ -73,6 +62,7 @@ class RadioService : MediaBrowserServiceCompat() {
           stopForeground(true)
         }
       })
+
       isActive = true
     }
 
@@ -80,11 +70,30 @@ class RadioService : MediaBrowserServiceCompat() {
     updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
   }
 
-  override fun onGetRoot(clientPackageName: String, clientUid: Int, rootHints: Bundle?): BrowserRoot {
+  // Allows WebView UI (AndroidBridge) to ask the service to play a stream
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    if (intent?.action == "PLAY_STREAM") {
+      val url = intent.getStringExtra("url")
+      val title = intent.getStringExtra("title")
+      if (!url.isNullOrBlank()) {
+        playStream(url, title)
+      }
+    }
+    return START_STICKY
+  }
+
+  override fun onGetRoot(
+    clientPackageName: String,
+    clientUid: Int,
+    rootHints: Bundle?
+  ): BrowserRoot {
     return BrowserRoot(MediaLibrary.ROOT, null)
   }
 
-  override fun onLoadChildren(parentId: String, result: Result<MutableList<MediaBrowserCompat.MediaItem>>) {
+  override fun onLoadChildren(
+    parentId: String,
+    result: Result<MutableList<MediaBrowserCompat.MediaItem>>
+  ) {
     val out = mutableListOf<MediaBrowserCompat.MediaItem>()
 
     when (parentId) {
@@ -101,7 +110,11 @@ class RadioService : MediaBrowserServiceCompat() {
     result.sendResult(out)
   }
 
-  override fun onSearch(query: String, extras: Bundle?, result: Result<MutableList<MediaBrowserCompat.MediaItem>>) {
+  override fun onSearch(
+    query: String,
+    extras: Bundle?,
+    result: Result<MutableList<MediaBrowserCompat.MediaItem>>
+  ) {
     result.sendResult(MediaLibrary.search(this, query).toMutableList())
   }
 
