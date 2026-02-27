@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GlobeDrive Radio</title>
+
+  <link rel="stylesheet" href="style.css" />
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+</head>
+<body>
+
+  <div id="topbar">
+    <div class="brand">🌍 GlobeDrive Radio</div>
+    <div class="now" id="nowPlaying">Not playing</div>
+    <div class="actions">
+      <button id="btnNight" title="Toggle night texture">Night</button>
+      <button id="btnReload" title="Reload stations">Reload</button>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="globeWrap">
+      <div id="globe"></div>
+      <div id="hint">Tap a glowing dot to play. Double-tap to favorite. Drag to spin.</div>
+    </div>
+
+    <div id="panel">
+      <div class="section">
+        <div class="row">
+          <input id="search" placeholder="Search station/country" />
+          <input id="genre" placeholder="Genre tag (optional)" />
+        </div>
+        <button id="btnApply">Apply filters</button>
+      </div>
+
+      <div class="section">
+        <div class="h">Favorites</div>
+        <div id="favorites"></div>
+      </div>
+
+      <div class="section">
+        <div class="h">Recents</div>
+        <div id="recents"></div>
+      </div>
+
+      <div class="section small">
+        <div class="h">Status</div>
+        <div id="status">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <audio id="player" controls playsinline></audio>
+
+  <script src="app.js"></script>
+</body>
+</html>
