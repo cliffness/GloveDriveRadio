@@ -105,8 +105,47 @@ function initThree() {
   window.addEventListener("resize", onResize);
   onResize();
 
-  renderer.domElement.addEventListener("pointerup", onClick);
-  renderer.domElement.addEventListener("dblclick", onDoubleClick);
+let downX = 0, downY = 0, moved = false;
+let pressTimer = null;
+
+renderer.domElement.addEventListener("pointerdown", (ev) => {
+  downX = ev.clientX; downY = ev.clientY;
+  moved = false;
+
+  // long-press = favorite (works everywhere)
+  pressTimer = setTimeout(() => {
+    const m = pickMarker(ev);
+    if (m) toggleFavorite(m.userData);
+  }, 450);
+});
+
+renderer.domElement.addEventListener("pointermove", (ev) => {
+  const dx = Math.abs(ev.clientX - downX);
+  const dy = Math.abs(ev.clientY - downY);
+  if (dx + dy > 10) { // user is dragging
+    moved = true;
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+  }
+});
+
+renderer.domElement.addEventListener("pointerup", (ev) => {
+  if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+
+  // If it was a drag, let OrbitControls handle it
+  if (moved) return;
+
+  // If it was a tap, try to select a marker
+  const m = pickMarker(ev);
+  if (!m) return;
+
+  const st = m.userData;
+  highlightMarker(m);
+  focusOn(m);
+
+  // IMPORTANT: play via native service (added below)
+  playStation(st);
+  saveRecent(st);
+});
 let pressTimer = null;
 renderer.domElement.addEventListener("pointerdown", (ev) => {
   pressTimer = setTimeout(() => {
@@ -149,7 +188,7 @@ function buildMarkers(stations) {
     const mat = new THREE.SpriteMaterial({ color: 0xff00aa, blending: THREE.AdditiveBlending });
     const s = new THREE.Sprite(mat);
     s.position.copy(pos);
-    s.scale.set(0.30, 0.30, 0.30);
+    s.scale.set(0.32, 0.32, 0.32);
     s.userData = st;
     scene.add(s);
     markers.push(s);
@@ -165,6 +204,7 @@ function highlightMarker(marker) {
 }
 
 const raycaster = new THREE.Raycaster();
+raycaster.params.Sprite.threshold = 0.6; // bigger tap target
 // Make Sprite markers easier to tap (especially on mobile)
 raycaster.params.Sprite.threshold = 0.35;
 const mouse = new THREE.Vector2();
@@ -336,7 +376,7 @@ function animate() {
   const t = Date.now() * 0.005;
   for (let i = 0; i < markers.length; i++) {
     const m = markers[i];
-    const pulse = 0.30 + Math.sin(t + i) * 0.06;
+    const pulse = 0.32 + Math.sin(t + i) * 0.07;
     m.scale.set(pulse, pulse, pulse);
   }
 
