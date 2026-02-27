@@ -21,6 +21,16 @@ class RadioService : MediaBrowserServiceCompat() {
 
   override fun onCreate() {
     super.onCreate()
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+  if (intent?.action == "PLAY_STREAM") {
+    val url = intent.getStringExtra("url")
+    val title = intent.getStringExtra("title")
+    if (!url.isNullOrBlank()) {
+      playStream(url, title)
+    }
+  }
+  return START_STICKY
+}
 
     createNotificationChannel()
 
